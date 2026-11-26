@@ -24,20 +24,28 @@ static void trim_trailing_slashes(char *path)
         path[--n] = '\0';
 }
 
-static char *shim_node_module(JSContext *ctx, const char *shim_dir,
-                              const char *name)
+static char *shim_module(JSContext *ctx, const char *shim_dir,
+                         const char *subdir, const char *name)
 {
     size_t dir_len = strlen(shim_dir);
+    size_t sub_len = strlen(subdir);
     size_t name_len = strlen(name);
     char *out;
+    size_t n;
 
-    out = js_malloc(ctx, dir_len + 6 + name_len + 3 + 1);
+    out = js_malloc(ctx, dir_len + 1 + sub_len + 1 + name_len + 3 + 1);
     if (!out)
         return NULL;
-    memcpy(out, shim_dir, dir_len);
-    memcpy(out + dir_len, "/node/", 6);
-    memcpy(out + dir_len + 6, name, name_len);
-    memcpy(out + dir_len + 6 + name_len, ".js", 4);
+    n = 0;
+    memcpy(out + n, shim_dir, dir_len);
+    n += dir_len;
+    out[n++] = '/';
+    memcpy(out + n, subdir, sub_len);
+    n += sub_len;
+    out[n++] = '/';
+    memcpy(out + n, name, name_len);
+    n += name_len;
+    memcpy(out + n, ".js", 4);
     return out;
 }
 
@@ -112,9 +120,9 @@ static char *module_normalize(JSContext *ctx, const char *base_name,
     if (!strcmp(name, "qjs:std") || !strcmp(name, "qjs:os"))
         return js_strdup(ctx, name);
     if (!strncmp(name, "node:", 5))
-        return shim_node_module(ctx, shim_dir, name + 5);
+        return shim_module(ctx, shim_dir, "node", name + 5);
     if (name[0] != '.' && name[0] != '/')
-        return shim_node_module(ctx, shim_dir, name);
+        return shim_module(ctx, shim_dir, "bare", name);
     return default_module_normalize(ctx, base_name, name);
 }
 
