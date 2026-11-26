@@ -1,0 +1,54 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install wasi-sdk
+        run: |
+          set -euo pipefail
+          api=https://api.github.com/repos/WebAssembly/wasi-sdk/releases/latest
+          url=$(curl -fsSL "$api" | jq -r '[.assets[].browser_download_url | select(endswith("x86_64-linux.tar.gz"))][0]')
+          test -n "$url" && test "$url" != "null"
+          curl -fsSL -o "$RUNNER_TEMP/wasi-sdk.tar.gz" "$url"
+          tar -xzf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP"
+          sdk=$(find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'wasi-sdk-*' -print -quit)
+          test -x "$sdk/bin/clang"
+          echo "WASI_SDK_PATH=$sdk" >> "$GITHUB_ENV"
+
+      - name: Build qjs.wasm
+        run: scripts/build.sh
+
+      - name: Install wasmtime
+        run: |
+          set -euo pipefail
+          curl -fsSL https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          wasmtime --dir test::/ dist/qjs.wasm --shim-dir /shims /smoke.js | tee smoke.out
+          grep -q "smoke ok" smoke.out
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist/qjs.wasm dist/qjs.wasm.sha256 --clobber
